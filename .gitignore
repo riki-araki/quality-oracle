@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+
+# Next.js
+.next/
+next-env.d.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Claude Code（ローカルのツール設定。CLAUDE.md は共有するので除外しない）
+.claude/settings.local.json
+
+# CLI 実行で生成される成果物（観測インベントリ・質問JSON）
+out/
+
+# ローカル台帳（SQLite。§6.9 の生きた仕様。外に出さない）
+data/
+
+# Test / coverage artifacts
+coverage/
+test-results/
+playwright-report/
+.playwright/

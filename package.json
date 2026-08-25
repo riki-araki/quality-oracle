@@ -1,0 +1,40 @@
+{
+  "name": "quality-oracle",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "コード片 → 二段パイプライン（観測/尋問） → 確認質問リスト(JSON) を出す最小CLI",
+  "bin": {
+    "quality-oracle": "src/cli/oracle.ts"
+  },
+  "scripts": {
+    "oracle": "tsx src/cli/oracle.ts",
+    "typecheck": "tsc --noEmit",
+    "check:schema": "tsx scripts/check-schema.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "exceljs": "^4.4.0",
+    "geist": "^1.7.2",
+    "next": "^16.2.9",
+    "next-auth": "^5.0.0-beta.31",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.3.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
