@@ -1,0 +1,150 @@
+[
+  {
+    "anchor": "GET /api/seminars (line ~24)",
+    "trigger": "GETリクエストが /api/seminars に届いたとき",
+    "behavior": "seminars配列の各要素について、entriesからseminarIdが一致するものをfilterでカウントし、remaining = capacity - taken を計算する。id/title/fee/deadline/remaining の5フィールドを持つオブジェクトの配列をJSONで返す。",
+    "effects": []
+  },
+  {
+    "anchor": "GET /api/seminars (line ~24)",
+    "trigger": "複数リクエストが同時にGETを呼び出しているとき",
+    "behavior": "entriesはメモリ上の単一配列であり、JavaScriptのシングルスレッドイベントループで処理される。filterは同期的に実行されるため、非同期処理の割り込みはない。ただし、POSTやキャンセルの非同期処理の合間にGETが挟まる場合、entriesの状態はその時点のスナップショットを反映する。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36)",
+    "trigger": "seminarIdがseminars配列のいずれのidとも一致しないとき",
+    "behavior": "HTTP 404 と {message: 'セミナーが見つかりません'} を返す。以降の処理は実行されない。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36)",
+    "trigger": "new Date().toISOString().slice(0,10) の結果が seminar.deadline を文字列比較で上回るとき",
+    "behavior": "HTTP 400 と {message: '申込期限を過ぎています'} を返す。以降の処理は実行されない。todayとdeadlineはISO8601 YYYY-MM-DD形式の文字列として辞書順で比較される。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36)",
+    "trigger": "todayがseminar.deadlineと等しいとき（today === deadline）",
+    "behavior": "today > seminar.deadline の条件はfalseとなるため、締切チェックを通過する。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36)",
+    "trigger": "entriesのうちseminarIdが一致するものの数がseminar.capacity以上のとき",
+    "behavior": "HTTP 400 と {message: '定員に達しています'} を返す。以降の処理は実行されない。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 定員チェックとchargeCardの間",
+    "trigger": "定員チェック通過後、chargeCard呼び出しの前後（awaitで制御が外れている間）に別のPOSTリクエストが定員チェックを通過したとき",
+    "behavior": "複数のリクエストが同時に定員チェックをパスし得る。それぞれが独立してchargeCardを呼び出し、entriesへのpushが行われる結果、entries内の同一セミナーエントリ数がcapacityを超える可能性がある。",
+    "effects": [
+      "chargeCard が capacity を超えて複数回呼び出される可能性がある（外部課金）",
+      "entries.push が capacity 超過分も実行される可能性がある（メモリ状態変更）"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — chargeCard呼び出し",
+    "trigger": "締切・定員チェックを両方通過したとき",
+    "behavior": "外部関数 chargeCard を {amount: seminar.fee, card: req.body.card} を引数として呼び出し、awaitで完了を待つ。chargeCardが例外をthrowした場合、この関数はキャッチされずにExpressのデフォルトエラーハンドラに伝播する。このとき entries.push は実行されない。",
+    "effects": [
+      "外部課金処理（chargeCard）が呼び出される"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — chargeCard成功後",
+    "trigger": "chargeCardが正常にresolveしたとき",
+    "behavior": "entryオブジェクトを生成する。idは 'e' + (entries.length + 1) の文字列連結。entries.pushでメモリ配列に追加する。",
+    "effects": [
+      "entriesメモリ配列にエントリが追加される（状態変更）"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — entry.id生成",
+    "trigger": "entries.push実行時点でentries.lengthがNのとき",
+    "behavior": "entry.id は 'e' + (N + 1) となる。複数リクエストが同時にentries.lengthを読んだ場合、同一のidが生成される可能性がある。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — sendMail呼び出し",
+    "trigger": "entries.push完了後",
+    "behavior": "外部関数 sendMailを {to: email, subject: '【申込完了】'+seminar.title, body: name+'様\\n\\nお申し込みを受け付けました。\\n参加費: '+seminar.fee+'円'} を引数として呼び出しawaitで待つ。sendMailが例外をthrowした場合、エラーはキャッチされずExpressのデフォルトエラーハンドラに伝播する。このときentriesへのpushは既に完了しており、課金も確定している。",
+    "effects": [
+      "外部メール送信（sendMail）が呼び出される"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 正常完了",
+    "trigger": "sendMailが正常にresolveしたとき",
+    "behavior": "HTTP 200 と {entryId: entry.id} をJSONで返す。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77)",
+    "trigger": "req.params.id がentriesのいずれのe.idとも一致しないとき",
+    "behavior": "HTTP 404 と {message: '申込が見つかりません'} を返す。以降の処理は実行されない。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — refundCharge呼び出し",
+    "trigger": "entriesにidが一致するエントリが存在するとき",
+    "behavior": "外部関数 refundCharge を entry.chargeId を引数として呼び出しawaitで待つ。refundChargeが例外をthrowした場合、エラーはキャッチされずExpressのデフォルトエラーハンドラに伝播する。このとき entries.splice はまだ実行されていない。",
+    "effects": [
+      "外部返金処理（refundCharge）が呼び出される"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — entries.splice",
+    "trigger": "refundChargeが正常にresolveしたとき",
+    "behavior": "entries.splice(idx, 1) によりentriesメモリ配列から該当エントリを削除する。spliceはインプレースで配列を変更し、後続要素のインデックスがシフトされる。",
+    "effects": [
+      "entriesメモリ配列からエントリが削除される（状態変更）"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — seminar検索",
+    "trigger": "entries.splice完了後",
+    "behavior": "seminars.find で entry.seminarId に一致するセミナーを検索する。一致するセミナーが存在しない場合、seminar は undefined となり、次行の seminar.title 参照で TypeError が発生する。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — sendMail呼び出し",
+    "trigger": "seminar が undefined でなく、refundChargeが成功したとき",
+    "behavior": "外部関数 sendMail を {to: entry.email, subject: '【キャンセル完了】'+seminar.title, body: entry.name+'様\\n\\nお申し込みをキャンセルしました。返金いたします。'} を引数として呼び出しawaitで待つ。sendMailが例外をthrowした場合、エラーはキャッチされずExpressのデフォルトエラーハンドラに伝播する。このとき返金処理（refundCharge）もentriesからの削除も既に完了している。",
+    "effects": [
+      "外部メール送信（sendMail）が呼び出される"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — 正常完了",
+    "trigger": "sendMailが正常にresolveしたとき",
+    "behavior": "HTTP 200 と {ok: true} をJSONで返す。",
+    "effects": []
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — 二重キャンセル",
+    "trigger": "同一のentry.idに対して並行して2つのキャンセルリクエストが届き、1つ目がfindIndexで該当を発見しrefundChargeのawait中に2つ目がfindIndexを実行したとき",
+    "behavior": "2つ目のリクエストもfindIndexで同一エントリを発見し、refundChargeを呼び出す。2回のrefundChargeがそれぞれawaitされ、2回のentries.spliceが実行される。2回目のspliceはidxが古い位置を指しており、別のエントリを削除する可能性がある。",
+    "effects": [
+      "refundChargeが同一chargeIdに対して2回呼び出される可能性がある（外部返金）",
+      "entriesから意図しないエントリが削除される可能性がある（状態変更）"
+    ]
+  },
+  {
+    "anchor": "全体 — entriesメモリ永続性",
+    "trigger": "Node.jsプロセスが再起動されたとき",
+    "behavior": "entriesはメモリ配列であるため、プロセス再起動によりすべてのエントリデータが消滅する。",
+    "effects": [
+      "entriesの全データ消失"
+    ]
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 入力バリデーション",
+    "trigger": "req.bodyにname/email/department/card等のフィールドが存在しない、またはnullのとき",
+    "behavior": "これらのフィールドに対するバリデーションコードは存在しない。undefinedのままentryオブジェクトに格納され、sendMailのtoフィールドにundefinedが渡される。chargeCardにもcard: undefinedが渡される。",
+    "effects": [
+      "chargeCard/sendMailにundefinedフィールドが渡される"
+    ]
+  }
+]

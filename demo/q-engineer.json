@@ -1,0 +1,202 @@
+[
+  {
+    "anchor": "POST /api/entries (line ~36) — 定員チェックとchargeCardの間",
+    "question": "コードは定員チェック通過後にawaitでchargeCardを呼び出しており、その間に別リクエストが同じ定員チェックをパスできる（TOCTOUレース）。しかしロック・フラグ・キュー等の排他制御は存在しない。これはcapacity超過課金を許容する意図か？",
+    "risk": "money",
+    "assumption": "意図しない。排他制御が必要。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — 二重キャンセル",
+    "question": "コードは同一エントリIDへの並行キャンセルに対して排他制御を持たず、refundChargeが同一chargeIdに対して2回呼び出され得る。これは二重返金を許容する意図か？",
+    "risk": "money",
+    "assumption": "意図しない。排他制御または冪等性チェックが必要。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — entries.splice",
+    "question": "コードはsplice後にseminar.titleを参照するが、entry.seminarIdに対応するセミナーが見つからない場合はTypeErrorが発生する。しかし返金とentriesからの削除はその前に完了している（取り消せない状態変更後に例外）。これは意図通りか？seminarが存在しないケースは正常系か異常系か？",
+    "risk": "irreversible",
+    "assumption": "意図しない。splice前にseminarの存在を確認すべき。",
+    "confidence": "high",
+    "kind": "precondition"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — sendMail呼び出し",
+    "question": "コードはentries.push・課金完了後にsendMailを呼び出すが、sendMailが例外をthrowした場合、課金とエントリ登録は確定済みなのにHTTP 500が返る。ユーザーへの申込完了通知は届かないが申込は成立している状態になる。これは意図通りか？sendMailの失敗をどう扱うべきか要件を確認する必要がある。",
+    "risk": "data",
+    "assumption": "意図しない。sendMail失敗はログに記録し、申込自体は成功とするべき可能性が高い。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — sendMail呼び出し",
+    "question": "コードは返金・エントリ削除完了後にsendMailを呼び出すが、sendMailが例外をthrowした場合、返金とエントリ削除は確定済みなのにHTTP 500が返る。キャンセルは成立しているがユーザーへの通知は届かない状態になる。これは意図通りか？",
+    "risk": "data",
+    "assumption": "意図しない。sendMail失敗はログ記録のみにとどめ、キャンセル自体は成功とするべき可能性が高い。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "全体 — entriesメモリ永続性",
+    "question": "コードはentriesをメモリ配列として保持しており、プロセス再起動で全データが消滅する。課金・返金の外部記録とentriesの整合性が取れなくなる。これはプロトタイプ用途として意図されたものか、本番運用を想定しているか？",
+    "risk": "data",
+    "assumption": "意図しない（本番運用前提なら）。データベース等の永続化層が必要。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 入力バリデーション",
+    "question": "コードはreq.bodyのname/email/department/card等のフィールドに対するバリデーションを行わない。undefinedのままchargeCard/sendMailに渡される。chargeCardにcard: undefinedが渡った場合の挙動は外部依存であり予測できない（課金失敗・外部エラー）。これはバリデーション省略が意図されたものか？",
+    "risk": "money",
+    "assumption": "意図しない。必須フィールドのバリデーションが必要。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 入力バリデーション",
+    "question": "コードはseminarIdのバリデーションをseminars.findによるID照合のみで行う。req.body.seminarIdが数値型・文字列型・nullなど型が不定の場合、findの比較（===か==か不明）の結果が変わりうる。型強制の有無は仕様か？",
+    "risk": "data",
+    "assumption": "意図しない。型を明示的に検証すべき。",
+    "confidence": "med",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — entry.id生成",
+    "question": "コードはentry.idを 'e' + (entries.length + 1) で生成する。並行リクエストが同時にentries.lengthを読んだ場合に同一IDが生成される。また、エントリがspliceで削除された後にlengthが減少するため、過去に使われたIDが再生成される可能性がある（ID衝突）。これは意図通りか？",
+    "risk": "data",
+    "assumption": "意図しない。UUIDや単調増加カウンタなど衝突しないID生成方式が必要。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — refundCharge呼び出し",
+    "question": "コードはentryに対してrefundChargeをentry.chargeIdを引数として呼び出す。しかしentryオブジェクトにchargeIdフィールドが格納されているかどうかはPOST /api/entriesのentry生成コードに依存する。chargeCardの返り値をchargeIdとしてentryに保存しているか確認が必要。chargeIdがundefinedの場合、refundChargeは正しく動作するか？",
+    "risk": "money",
+    "assumption": "chargeIdはchargeCardの返り値から設定されていない可能性がある。omission。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — chargeCard呼び出し",
+    "question": "コードはchargeCardの返り値（chargeId等）をentryオブジェクトに保存していないか、保存している場合その実装が確認できない。キャンセル時のrefundChargeはentry.chargeIdを必要とするが、これが正しく保存されているか。これは設計上の漏れか？",
+    "risk": "money",
+    "assumption": "意図しない漏れの可能性が高い。chargeCardの返り値をentry.chargeIdとして保存すべき。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 締切チェック（todayがdeadlineと等しいとき）",
+    "question": "コードはtoday > deadlineのときのみ締切超過と判定し、today === deadlineのときは申込を通過させる。「締切日当日は申込可能」という仕様は明示的に承認されたか？（「締切日の翌日から不可」と「締切日を過ぎたら不可＝締切日は不可」のどちらか）",
+    "risk": "data",
+    "assumption": "要件次第。当日申込可能が自然だが、ビジネスルールの確認が必要。",
+    "confidence": "med",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 締切チェック（タイムゾーン）",
+    "question": "コードはnew Date().toISOString().slice(0,10)でtodayを生成する。toISOStringは常にUTCを返すため、サーバーのローカルタイムゾーンとずれる。日本時間で申込日当日でもUTCでは前日になり得る（またはその逆）。タイムゾーンはどこを基準とする仕様か？",
+    "risk": "data",
+    "assumption": "意図しない。日本時間（JST）基準での日付比較が必要な可能性が高い。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 定員チェック",
+    "question": "コードはentriesのうちseminarIdが一致するものの数 >= capacityのとき満員とする。capacityが0または負数の場合（データの誤り等）、常に満員と判定される。capacityの最小値・バリデーションは存在するか？",
+    "risk": "data",
+    "assumption": "意図しない。capacity > 0 のバリデーションが必要。",
+    "confidence": "med",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "全体 — 認証・権限",
+    "question": "コードはすべてのエンドポイント（GET /api/seminars、POST /api/entries、POST /api/entries/:id/cancel）に認証・認可の仕組みを持たない。誰でも任意のエントリをキャンセルできる。これは意図通りか（内部API等）？",
+    "risk": "auth",
+    "assumption": "意図しない（本番運用前提なら）。少なくともキャンセルエンドポイントは本人確認が必要。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — 認証・権限",
+    "question": "コードはエントリIDを知っていれば誰でも任意の他者の申込をキャンセルできる。キャンセル実行者が申込者本人であることを検証する仕組みがない。これは意図通りか？",
+    "risk": "auth",
+    "assumption": "意図しない。申込者本人または管理者のみがキャンセルできるべき。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 同一ユーザーの重複申込",
+    "question": "コードは同一ユーザー（同一email等）が同一セミナーに複数回申し込むことを防ぐチェックを持たない。重複申込・重複課金が発生し得る。これは意図通りか？",
+    "risk": "money",
+    "assumption": "意図しない。同一セミナーへの重複申込チェックが必要。",
+    "confidence": "high",
+    "kind": "omission"
+  },
+  {
+    "anchor": "GET /api/seminars (line ~24) — remaining計算",
+    "question": "コードはremaining = capacity - takenを計算するが、takenがcapacityを超えている場合（レースコンディションによる超過登録後）remainingが負数になる。負数のremainingをAPIレスポンスとして返すことは意図通りか？クライアントは負数を正しく扱えるか？",
+    "risk": "data",
+    "assumption": "意図しない。remainingはMath.max(0, capacity - taken)とすべき可能性がある。",
+    "confidence": "med",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — chargeCard失敗時",
+    "question": "コードはchargeCardが例外をthrowした場合にエラーをExpressのデフォルトエラーハンドラに伝播させる。このときentries.pushは実行されない。しかし、chargeCardが「課金は成功したが応答がタイムアウトした」ケースでは課金済み・エントリ未登録の状態になり得る。このケースのリカバリ手順は設計されているか？",
+    "risk": "money",
+    "assumption": "設計されていない。冪等性キーや補償トランザクションの設計が必要。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — refundCharge失敗時",
+    "question": "コードはrefundChargeが例外をthrowした場合にエラーをExpressのデフォルトエラーハンドラに伝播させる。このときentries.spliceは実行されない。つまり返金失敗でもエントリは残る（整合性は保たれる）が、ユーザーへのエラー通知内容やリトライ手順は設計されているか？",
+    "risk": "money",
+    "assumption": "設計されていない。返金失敗時のリトライ・オペレーター通知の仕組みが必要。",
+    "confidence": "med",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 入力バリデーション（feeが0・負数の場合）",
+    "question": "コードはseminar.feeをchargeCardのamountとしてそのまま渡す。seminarsデータにfeeが0や負数のセミナーが存在した場合、chargeCardに0や負数が渡される。chargeCardはこれをエラーとして扱うか、0円課金・負数課金を実行するか不明。seminarsデータのfeeバリデーションは存在するか？",
+    "risk": "money",
+    "assumption": "バリデーションは存在しない。fee > 0 のチェックが必要。",
+    "confidence": "med",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "全体 — 大量データ・上限",
+    "question": "コードはentriesメモリ配列に上限がない。セミナーの総capacity合計に制限がなければ、entriesが無制限に成長しメモリ枯渇を引き起こし得る。エントリ数の上限や定期的なクリーンアップは設計されているか？",
+    "risk": "other",
+    "assumption": "設計されていない。プロトタイプ用途であれば許容範囲だが、本番運用では問題になる。",
+    "confidence": "low",
+    "kind": "boundary"
+  },
+  {
+    "anchor": "POST /api/entries/:id/cancel (line ~77) — 二重キャンセルのsplice順序",
+    "question": "コードは二重キャンセル時に2回目のspliceが古いidxを使って別エントリを削除し得ると観測される。削除される「別のエントリ」の課金者は返金も通知も受けられないまま申込が消える。これはデータ破壊として認識されているか？",
+    "risk": "data",
+    "assumption": "認識されていない。排他制御が必要。",
+    "confidence": "high",
+    "kind": "behavior"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 矛盾スキャン：seminarIdバリデーションの非対称性",
+    "question": "コードはPOST /api/entriesでseminarIdの存在チェックを行うが、POST /api/entries/:id/cancelではentry.seminarIdに対応するseminarsの存在チェックをsplice後に行う（順序が逆）。前者は処理前チェック、後者は処理後チェックであり非対称。cancelのseminar検索はsplice前に行うべきか？どちらが正しい設計か？",
+    "risk": "irreversible",
+    "assumption": "cancelのseminar存在確認はsplice前（refundCharge前）に行うべき。",
+    "confidence": "high",
+    "kind": "contradiction"
+  },
+  {
+    "anchor": "POST /api/entries (line ~36) — 矛盾スキャン：sendMail失敗時の整合性",
+    "question": "コードはPOST /api/entriesでsendMail失敗時にHTTP 500を返すが、課金・エントリ登録は確定済みである。一方POST /api/entries/:id/cancelでもsendMail失敗時にHTTP 500を返すが、返金・エントリ削除は確定済みである。両エンドポイントで「メール失敗＝全体失敗扱い」という挙動は対称だが、取り消せない副作用後のエラー返却という点で設計として正しいか？いずれかを「メール失敗は無視してOKを返す」に変更すべきではないか？",
+    "risk": "irreversible",
+    "assumption": "メール失敗は副作用（課金・DB変更）の成否に関わらず、ログ記録のみにしてOKを返すべき。",
+    "confidence": "high",
+    "kind": "contradiction"
+  }
+]
